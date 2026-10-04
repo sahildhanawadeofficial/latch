@@ -2,18 +2,11 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import axios from 'axios';
 
 const AuthContext = createContext(null);
-const PRODUCTION_API = 'https://latch-jy74.onrender.com/api';
 
-// Local Vite proxies /api. The Vercel site has no API of its own, so call Render directly.
-function apiBaseURL() {
-  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')) {
-    return PRODUCTION_API;
-  }
-  return '/api';
-}
+const apiBaseURL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 export const api = axios.create({
-  baseURL: apiBaseURL(),
+  baseURL: apiBaseURL,
   withCredentials: true, // Required to send/receive httpOnly cookies (refresh token)
 });
 
