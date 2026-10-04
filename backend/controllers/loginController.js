@@ -127,15 +127,18 @@ async function loginFinish(req, res, next) {
 
     const { newCounter } = verification.authenticationInfo;
 
-    // Anti-clone protection: counter must strictly increase
-    if (newCounter <= device.counter) {
+    // Windows Hello and some other authenticators always report 0 because they
+    // do not keep a signature counter. WebAuthn only treats a stalled counter
+    // as a possible clone when at least one of the two values is non-zero.
+    if ((newCounter > 0 || device.counter > 0) && newCounter <= device.counter) {
       return res.status(400).json({
         error: 'Signature counter did not increment. Possible authenticator clone detected.',
       });
     }
 
-    // Update the signature counter
-    await Device.updateOne({ _id: device._id }, { counter: newCounter });
+    if (newCounter > device.counter) {
+      await Device.updateOne({ _id: device._id }, { counter: newCounter });
+    }
 
     // Clear the challenge cookie
     clearChallengeCookie(res);
