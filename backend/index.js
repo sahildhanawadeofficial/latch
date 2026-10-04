@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser');
 const authRouter = require('./routes/auth');
 const dashboardRouter = require('./routes/dashboard');
 const { errorHandler } = require('./middleware/errorHandler');
+const { isAllowedOrigin } = require('./services/clientOrigin');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -14,7 +15,10 @@ const PORT = process.env.PORT || 5000;
 // ─── Middleware ────────────────────────────────────────────────────────────────
 app.use(
   cors({
-    origin: process.env.ORIGIN || 'http://localhost:3000',
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      return callback(null, false);
+    },
     credentials: true, // Required to allow cookies cross-origin
   })
 );

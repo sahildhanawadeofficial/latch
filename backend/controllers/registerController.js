@@ -8,10 +8,9 @@ const Device = require('../models/Device');
 const { setChallengeCookie, getChallengeCookie, clearChallengeCookie } = require('../services/challengeCookie');
 const { generateRecoveryCode, hashCode } = require('../services/recoveryService');
 const { verifyAccessToken } = require('../services/jwtService');
+const { webAuthnFromRequest } = require('../services/clientOrigin');
 
 const RP_NAME = process.env.RP_NAME || 'SecureBank';
-const RP_ID = process.env.RP_ID || 'localhost';
-const ORIGIN = process.env.ORIGIN || 'http://localhost:3000';
 
 /**
  * POST /api/auth/register/start
@@ -51,9 +50,10 @@ async function registerStart(req, res, next) {
     // SimpleWebAuthn requires userID to be a Uint8Array
     const tempUserId = new Uint8Array(Buffer.from(email));
 
+    const { rpID } = webAuthnFromRequest(req);
     const options = await generateRegistrationOptions({
       rpName: RP_NAME,
-      rpID: RP_ID,
+      rpID,
       userID: tempUserId,
       userName: email,
       userDisplayName: email,
@@ -65,7 +65,7 @@ async function registerStart(req, res, next) {
     });
 
     // Store challenge in encrypted httpOnly cookie (stateless)
-    setChallengeCookie(res, options.challenge);
+    setChallengeCookie(res, options.challenge, req);
 
     // Return options (challenge is included for the browser but also stored encrypted)
     return res.status(200).json(options);
@@ -95,13 +95,14 @@ async function registerFinish(req, res, next) {
     }
 
     // Verify the WebAuthn registration response
+    const { rpID, origin } = webAuthnFromRequest(req);
     let verification;
     try {
       verification = await verifyRegistrationResponse({
         response: credentialResponse,
         expectedChallenge,
-        expectedOrigin: ORIGIN,
-        expectedRPID: RP_ID,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
         requireUserVerification: true,
       });
     } catch (err) {
@@ -144,7 +145,7 @@ async function registerFinish(req, res, next) {
     });
 
     // Clear challenge cookie — it has been consumed
-    clearChallengeCookie(res);
+    clearChallengeCookie(res, req);
 
     // Return the plaintext recovery code exactly once — never stored in plaintext
     return res.status(201).json({

@@ -9,10 +9,10 @@ const { verifyCode, generateRecoveryCode, hashCode } = require('../services/reco
 const { sendLockoutAlert } = require('../services/emailService');
 const { setChallengeCookie, getChallengeCookie, clearChallengeCookie } = require('../services/challengeCookie');
 const { validateEmail } = require('../services/emailValidator');
+const { webAuthnFromRequest } = require('../services/clientOrigin');
 
 const LOCKOUT_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 const RP_NAME = process.env.RP_NAME || 'SecureBank';
-const RP_ID = process.env.RP_ID || 'localhost';
 
 /**
  * POST /api/auth/recover
@@ -79,9 +79,10 @@ async function recover(req, res, next) {
 
     // Generate WebAuthn registration options for re-enrollment IN MEMORY FIRST
     // Doing this before DB updates prevents locking out the user if generation crashes
+    const { rpID } = webAuthnFromRequest(req);
     const registrationOptions = await generateRegistrationOptions({
       rpName: RP_NAME,
-      rpID: RP_ID,
+      rpID,
       userID: new Uint8Array(Buffer.from(user._id.toString())),
       userName: user.email,
       userDisplayName: user.email,
@@ -107,7 +108,7 @@ async function recover(req, res, next) {
     );
 
     // Store challenge in encrypted cookie for the re-enrollment flow
-    setChallengeCookie(res, registrationOptions.challenge);
+    setChallengeCookie(res, registrationOptions.challenge, req);
 
     return res.status(200).json({
       message: 'Recovery successful. All devices have been removed. Please save your new recovery code and re-register your fingerprint.',
@@ -145,13 +146,14 @@ async function recoverFinish(req, res, next) {
     }
 
     // Verify registration response
+    const { rpID, origin } = webAuthnFromRequest(req);
     let verification;
     try {
       verification = await verifyRegistrationResponse({
         response: credentialResponse,
         expectedChallenge,
-        expectedOrigin: process.env.ORIGIN || 'http://localhost:3000',
-        expectedRPID: RP_ID,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
         requireUserVerification: true,
       });
     } catch (err) {
@@ -180,7 +182,7 @@ async function recoverFinish(req, res, next) {
       counter: credential.counter,
     });
 
-    clearChallengeCookie(res);
+    clearChallengeCookie(res, req);
 
     return res.status(201).json({ message: 'Device recovered successfully.' });
   } catch (err) {

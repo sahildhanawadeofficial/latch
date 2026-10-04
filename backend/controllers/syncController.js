@@ -7,10 +7,9 @@ const PairingToken = require('../models/PairingToken');
 const Device = require('../models/Device');
 const User = require('../models/User');
 const { setChallengeCookie, getChallengeCookie, clearChallengeCookie } = require('../services/challengeCookie');
+const { webAuthnFromRequest } = require('../services/clientOrigin');
 
 const RP_NAME = process.env.RP_NAME || 'SecureBank';
-const RP_ID = process.env.RP_ID || 'localhost';
-const ORIGIN = process.env.ORIGIN || 'http://localhost:3000';
 
 /**
  * POST /api/auth/sync/token
@@ -65,9 +64,10 @@ async function syncClaim(req, res, next) {
     if (!user) return res.status(404).json({ error: 'User not found.' });
 
     // Generate WebAuthn registration options for the secondary device
+    const { rpID } = webAuthnFromRequest(req);
     const options = await generateRegistrationOptions({
       rpName: RP_NAME,
-      rpID: RP_ID,
+      rpID,
       userID: user._id.toString(),
       userName: user.email,
       userDisplayName: user.email,
@@ -79,7 +79,7 @@ async function syncClaim(req, res, next) {
     });
 
     // Store challenge in encrypted cookie on the secondary device's response
-    setChallengeCookie(res, options.challenge);
+    setChallengeCookie(res, options.challenge, req);
 
     // Pass userId and deviceName in session so /register/finish can link correctly
     // We encode userId in a custom response field for the secondary device to re-submit
@@ -117,13 +117,14 @@ async function syncFinish(req, res, next) {
     }
 
     // Verify the WebAuthn registration response
+    const { rpID, origin } = webAuthnFromRequest(req);
     let verification;
     try {
       verification = await verifyRegistrationResponse({
         response: credentialResponse,
         expectedChallenge,
-        expectedOrigin: ORIGIN,
-        expectedRPID: RP_ID,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
         requireUserVerification: true,
       });
     } catch (err) {
@@ -145,7 +146,7 @@ async function syncFinish(req, res, next) {
       counter: credential.counter,
     });
 
-    clearChallengeCookie(res);
+    clearChallengeCookie(res, req);
 
     return res.status(201).json({ message: 'Secondary device registered successfully.' });
   } catch (err) {

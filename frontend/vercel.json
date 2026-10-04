@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://latch-jy74.onrender.com/api/:path*"
+    }
+  ]
+}

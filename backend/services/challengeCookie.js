@@ -69,12 +69,20 @@ function decryptChallenge(encoded) {
  * @param {object} res - Express response
  * @param {string} challenge - raw WebAuthn challenge string
  */
-function setChallengeCookie(res, challenge) {
+function cookieFlags(req) {
+  const origin = req?.headers?.origin || '';
+  const crossSite = origin.startsWith('https://');
+  return {
+    httpOnly: true,
+    secure: crossSite || process.env.NODE_ENV === 'production',
+    sameSite: crossSite ? 'none' : 'strict',
+  };
+}
+
+function setChallengeCookie(res, challenge, req) {
   const encrypted = encryptChallenge(challenge);
   res.cookie(COOKIE_NAME, encrypted, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    ...cookieFlags(req),
     maxAge: COOKIE_MAX_AGE,
   });
 }
@@ -97,8 +105,8 @@ function getChallengeCookie(req) {
  * Clear the WebAuthn challenge cookie after it has been consumed.
  * @param {object} res - Express response
  */
-function clearChallengeCookie(res) {
-  res.clearCookie(COOKIE_NAME);
+function clearChallengeCookie(res, req) {
+  res.clearCookie(COOKIE_NAME, cookieFlags(req));
 }
 
-module.exports = { setChallengeCookie, getChallengeCookie, clearChallengeCookie };
+module.exports = { setChallengeCookie, getChallengeCookie, clearChallengeCookie, cookieFlags };

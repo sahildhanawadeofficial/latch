@@ -4,12 +4,10 @@ const {
 } = require('@simplewebauthn/server');
 const User = require('../models/User');
 const Device = require('../models/Device');
-const { setChallengeCookie, getChallengeCookie, clearChallengeCookie } = require('../services/challengeCookie');
+const { setChallengeCookie, getChallengeCookie, clearChallengeCookie, cookieFlags } = require('../services/challengeCookie');
+const { webAuthnFromRequest } = require('../services/clientOrigin');
 const { signAccessToken, signRefreshToken, verifyRefreshToken, hashToken } = require('../services/jwtService');
 const { validateEmail } = require('../services/emailValidator');
-
-const RP_ID = process.env.RP_ID || 'localhost';
-const ORIGIN = process.env.ORIGIN || 'http://localhost:3000';
 
 /**
  * POST /api/auth/login/start
@@ -58,14 +56,15 @@ async function loginStart(req, res, next) {
       type: 'public-key',
     }));
 
+    const { rpID } = webAuthnFromRequest(req);
     const options = await generateAuthenticationOptions({
-      rpID: RP_ID,
+      rpID,
       allowCredentials,
       userVerification: 'required',
     });
 
     // Store challenge in encrypted httpOnly cookie
-    setChallengeCookie(res, options.challenge);
+    setChallengeCookie(res, options.challenge, req);
 
     return res.status(200).json(options);
   } catch (err) {
@@ -103,13 +102,14 @@ async function loginFinish(req, res, next) {
     }
 
     // Verify the authentication response
+    const { rpID, origin } = webAuthnFromRequest(req);
     let verification;
     try {
       verification = await verifyAuthenticationResponse({
         response: signatureResponse,
         expectedChallenge,
-        expectedOrigin: ORIGIN,
-        expectedRPID: RP_ID,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
         credential: {
           id: device.credentialId,
           publicKey: Buffer.from(device.publicKey, 'base64url'),
@@ -141,7 +141,7 @@ async function loginFinish(req, res, next) {
     }
 
     // Clear the challenge cookie
-    clearChallengeCookie(res);
+    clearChallengeCookie(res, req);
 
     // Issue RS256 token pair
     const payload = { userId: user._id.toString(), email: user.email };
@@ -153,9 +153,7 @@ async function loginFinish(req, res, next) {
 
     // Set refresh token as httpOnly cookie
     res.cookie('refresh_token', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      ...cookieFlags(req),
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -197,9 +195,7 @@ async function refreshToken(req, res, next) {
     await User.updateOne({ _id: user._id }, { refreshTokenHash: hashToken(newRefreshToken) });
 
     res.cookie('refresh_token', newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      ...cookieFlags(req),
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -224,7 +220,7 @@ async function logout(req, res, next) {
         // Token already invalid — still clear the cookie
       }
     }
-    res.clearCookie('refresh_token');
+    res.clearCookie('refresh_token', cookieFlags(req));
     return res.status(200).json({ message: 'Logged out successfully.' });
   } catch (err) {
     next(err);
