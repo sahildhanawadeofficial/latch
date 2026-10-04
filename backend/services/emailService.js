@@ -1,19 +1,33 @@
+const dns = require('dns');
 const nodemailer = require('nodemailer');
+
+dns.setDefaultResultOrder('ipv4first');
 
 let transporter;
 
-function getTransporter() {
-  if (!transporter) {
-    const user = process.env.GMAIL_USER?.trim();
-    const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
-    if (!user || !pass) {
-      throw new Error('GMAIL_USER or GMAIL_APP_PASSWORD is not set in environment variables.');
-    }
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user, pass },
-    });
+async function getTransporter() {
+  if (transporter) return transporter;
+
+  const user = process.env.GMAIL_USER?.trim();
+  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
+  if (!user || !pass) {
+    throw new Error('GMAIL_USER or GMAIL_APP_PASSWORD is not set in environment variables.');
   }
+
+  // Render has no working IPv6 route to Gmail. Connecting to an IPv4 address
+  // avoids ENETUNREACH on smtp.gmail.com:465.
+  const addresses = await dns.promises.resolve4('smtp.gmail.com');
+  transporter = nodemailer.createTransport({
+    host: addresses[0],
+    port: 587,
+    secure: false,
+    requireTLS: true,
+    auth: { user, pass },
+    tls: { servername: 'smtp.gmail.com' },
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 30000,
+  });
   return transporter;
 }
 
@@ -23,7 +37,7 @@ function getTransporter() {
  * @param {string} email - the user's email address
  */
 async function sendLockoutAlert(email) {
-  const mailer = getTransporter();
+  const mailer = await getTransporter();
   await mailer.sendMail({
     from: `"SecureBank Security" <${process.env.GMAIL_USER}>`,
     to: email,
@@ -51,7 +65,7 @@ async function sendLockoutAlert(email) {
 async function sendVerificationEmail(email, verifyUrl) {
   let mailer;
   try {
-    mailer = getTransporter();
+    mailer = await getTransporter();
   } catch (err) {
     console.error('❌ Verification email not sent:', err.message);
     throw err;
@@ -127,7 +141,7 @@ async function sendVerificationEmail(email, verifyUrl) {
  * @param {string} otp - 6 digit code
  */
 async function sendSPINResetEmail(email, otp) {
-  const mailer = getTransporter();
+  const mailer = await getTransporter();
   try {
     await mailer.sendMail({
       from: `"SecureBank Security" <${process.env.GMAIL_USER}>`,
