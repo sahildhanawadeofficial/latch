@@ -61,7 +61,14 @@ router.post('/verify-email/send', async (req, res, next) => {
     console.log(`   ${verifyUrl}`);
     console.log('======================================================\n');
 
-    await sendVerificationEmail(normalised, verifyUrl);
+    try {
+      await sendVerificationEmail(normalised, verifyUrl);
+    } catch (mailErr) {
+      console.error('Verification email failed:', mailErr.message);
+      return res.status(502).json({
+        error: 'Could not send the verification email. Set GMAIL_USER and GMAIL_APP_PASSWORD on the server, then redeploy.',
+      });
+    }
 
     return res.json({ message: 'Verification email sent. Please check your inbox.' });
   } catch (err) {

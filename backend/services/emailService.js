@@ -4,15 +4,14 @@ let transporter;
 
 function getTransporter() {
   if (!transporter) {
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    const user = process.env.GMAIL_USER?.trim();
+    const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
+    if (!user || !pass) {
       throw new Error('GMAIL_USER or GMAIL_APP_PASSWORD is not set in environment variables.');
     }
     transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
+      auth: { user, pass },
     });
   }
   return transporter;
@@ -50,7 +49,13 @@ async function sendLockoutAlert(email) {
  * @param {string} verifyUrl - the full verification URL with token
  */
 async function sendVerificationEmail(email, verifyUrl) {
-  const mailer = getTransporter();
+  let mailer;
+  try {
+    mailer = getTransporter();
+  } catch (err) {
+    console.error('❌ Verification email not sent:', err.message);
+    throw err;
+  }
   try {
     await mailer.sendMail({
       from: `"SecureBank Security" <${process.env.GMAIL_USER}>`,
